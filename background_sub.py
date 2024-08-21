@@ -18,6 +18,7 @@ from loguru import logger
 from argparse import ArgumentParser as AP
 from os.path import abspath
 import time
+
 ### Using the palom pyramidal writer by Yu-An Chen: https://github.com/labsyspharm/palom/blob/main/palom/pyramid.py
 ### Adapted for this use case - only one image can be processed:
 
@@ -399,6 +400,8 @@ def main(args):
     mosaic_out = copy.copy(mosaic)
     chunk_size = (args.chunksize,args.chunksize)
     mosaic_out = mosaic_out.rechunk((1,args.chunksize,args.chunksize))
+    zarr_store = zarr.open('mosaic_out.zarr', mode='w', shape=mosaic.shape, 
+                           chunks=chunk_size, dtype=mosaic.dtype)
 
     for channel in range(len(markers)):
         if markers.background.isnull()[channel] == True:
@@ -406,10 +409,13 @@ def main(args):
         else:
             background_marker = markers.iloc[np.array(markers.marker_name == markers.background[channel])]
             scalar = markers[markers.ind == channel].exposure.values / background_marker.exposure.values
-            mosaic_out[channel] = subtract_channels(mosaic[channel], mosaic[background_marker.ind.values[0]], scalar, chunk_size)
+            processed_channel = subtract_channels(mosaic[channel], mosaic[background_marker.ind.values[0]], scalar, chunk_size)
+            #mosaic_out[channel] = subtract_channels(mosaic[channel], mosaic[background_marker.ind.values[0]], scalar, chunk_size)
+            zarr_store[channel, :, :] = processed_channel.compute()            
             print(f"Channel {markers.marker_name[channel]} ({channel}) processed, background subtraction")
 
     # removes channels from the image as specified in the markers file
+    mosaic_out = da.from_zarr(zarr_store)
     mosaic_out = mosaic_out[np.where(markers.keep)[0]]
     channel_names = list(markers.marker_name[markers.keep])
 
